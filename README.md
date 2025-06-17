@@ -22,7 +22,9 @@ touch scripts/R/__init__.py
 mkdir tests
 touch tests/__init__.py
 touch tests/tests.py
+# Development loop
 source .venv/bin/activate
+python -i scripts/py/simulate.py
 uv run ruff format
 uv run ruff check --fix
 uv run pytest -v

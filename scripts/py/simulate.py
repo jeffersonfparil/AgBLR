@@ -2,7 +2,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import norm, uniform, laplace, beta
 from scipy.stats import multivariate_normal
-from typing import Self
+from typing import Self, Union
 
 
 class CovarianceMatrix:
@@ -11,21 +11,49 @@ class CovarianceMatrix:
         d = len(str(p))
         self.labels = [f"{label_prefix}-{str(i + 1).zfill(d)}" for i in range(p)]
 
+    def __repr__(self):
+        print("Covariance Matrix:")
+        with np.printoptions(precision=2, suppress=True):
+            print(self.V)
+        if len(self.labels) > 10:
+            print("Labels:", self.labels[0:5], "...", self.labels[-5:len(self.labels)])
+        else:
+            print("Labels:", self.labels)
+        print("Determinant:", np.linalg.det(self.V))
+        return "CovarianceMatrix(p={})".format(self.V.shape[0])
+    
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, CovarianceMatrix):
+            return NotImplemented
+        return np.array_equal(self.V, other.V) and self.labels == other.labels
+
+    def __ne__(self, other: object) -> bool:
+        if not isinstance(other, CovarianceMatrix):
+            return NotImplemented
+        return not self.__eq__(other)
+
+    def __hash__(self) -> int:
+        return hash((tuple(self.V.flatten()), tuple(self.labels)))
+
     def simulate_spherical(self, s: float = 1.00) -> Self:
         n = self.V.shape[0]
         self.V = np.eye(n, n) * s
         return self
 
-    def simulate_simple(self, x: npt.NDArray[1]) -> Self:
-        if len(x) != self.V.shape[0]:
+    def simulate_simple(self, x: Union[None, npt.NDArray[1]] = None) -> Self:
+        if x is None:
+            x = np.diagonal(self.V)
+        elif len(x) != self.V.shape[0]:
             raise ValueError(
                 "Input vector length must match the covariance matrix size."
             )
         self.V = np.outer(x, x) / len(x)
         return self
 
-    def simulate_diagonal(self, x: npt.NDArray[1], seed: int = 42) -> Self:
-        if len(x) != self.V.shape[0]:
+    def simulate_diagonal(self, x: Union[None, npt.NDArray[1]] = None, seed: int = 42) -> Self:
+        if x is None:
+            x = np.diagonal(self.V)
+        elif len(x) != self.V.shape[0]:
             raise ValueError(
                 "Input vector length must match the covariance matrix size."
             )
@@ -35,8 +63,10 @@ class CovarianceMatrix:
         self.V = np.diag(diagonal_elements)
         return self
 
-    def simulate_random(self, x: npt.NDArray[1], seed: int = 42) -> Self:
-        if len(x) != self.V.shape[0]:
+    def simulate_random(self, x: Union[None, npt.NDArray[1]] = None, seed: int = 42) -> Self:
+        if x is None:
+            x = np.diagonal(self.V)
+        elif len(x) != self.V.shape[0]:
             raise ValueError(
                 "Input vector length must match the covariance matrix size."
             )
@@ -47,8 +77,10 @@ class CovarianceMatrix:
         self.V = (R @ R.T) / n
         return self
 
-    def simulate_autocorrelation(self, x: npt.NDArray[1]) -> Self:
-        if len(x) != self.V.shape[0]:
+    def simulate_autocorrelation(self, x: Union[None, npt.NDArray[1]] = None) -> Self:
+        if x is None:
+            x = np.diagonal(self.V)
+        elif len(x) != self.V.shape[0]:
             raise ValueError(
                 "Input vector length must match the covariance matrix size."
             )
@@ -57,8 +89,8 @@ class CovarianceMatrix:
             for j in range(i, n):
                 lag = abs(i - j)
                 # a = np.correlate(x[i:], np.roll(x[j:], lag), mode="valid")[0] / n
-                x1 = x[0:(n-lag)]
-                x2 = np.roll(x, lag)[0:(n-lag)]
+                x1 = x[0 : (n - lag)]
+                x2 = np.roll(x, lag)[0 : (n - lag)]
                 a = np.correlate(x1, x2, mode="valid")[0] / n
                 self.V[i, j] = a
                 self.V[j, i] = a
@@ -66,13 +98,15 @@ class CovarianceMatrix:
 
     def simulate_kinship(
         self,
-        x: npt.NDArray[1],
-        k: int = 3,        # Number of kinship groups
-        r: float = 0.25,   # Correlation strength within groups
-        eps: float = 0.01, # Small random noise to add
+        x: Union[None, npt.NDArray[1]] = None,
+        k: int = 3,  # Number of kinship groups
+        r: float = 0.25,  # Correlation strength within groups
+        eps: float = 0.01,  # Small random noise to add
         seed: int = 42,
     ) -> Self:
-        if len(x) != self.V.shape[0]:
+        if x is None:
+            x = np.diagonal(self.V)
+        elif len(x) != self.V.shape[0]:
             raise ValueError(
                 "Input vector length must match the covariance matrix size."
             )
@@ -116,14 +150,38 @@ class Effects:
         pmeans: tuple[float, float] = (2.0, 1.0),
         label_prefix: str = "param",
         seed: int = 42,
-    ):
+    ) -> None:
         x = dmeans(pmeans[0], pmeans[1]).rvs(size=p)
         K = CovarianceMatrix(p=p, label_prefix=label_prefix)
         K.simulate_simple(x)
         if np.abs(np.linalg.det(K.V)) <= 1e-7:
             K.inflate_diagonal(s=0.01, tol=1e-7, max_iter=10)
         MVN = multivariate_normal(mean=x, cov=K.V, allow_singular=False, seed=seed)
-        self.labels = K.labels
-        self.V = K.V
+        self.K = K
         self.b = MVN.rvs(size=1)
-        return self
+        return None
+    
+    def __repr__(self):
+        print("Covariances:")
+        print(self.K)
+        print("Effects:")
+        with np.printoptions(precision=2, suppress=True):
+            print("b:", self.b)
+        return "Effects(p={})".format(len(self.b))
+    
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Effects):
+            return NotImplemented
+        return (
+            (self.K == other.K) and
+            np.array_equal(self.b, other.b)
+        )
+    
+    def __ne__(self, other: object) -> bool:
+        if not isinstance(other, Effects):
+            return NotImplemented
+        return not self.__eq__(other)
+    
+    def __hash__(self) -> int:
+        return hash((hash(self.K), tuple(self.b.flatten())))
+    
