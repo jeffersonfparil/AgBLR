@@ -223,13 +223,23 @@ if (n_entries * n_replications) != (n_rows * n_cols):
 effects = [
     Effects(p=v[0], dmeans=v[1], pmeans=v[2], label_prefix=k) for k, v in input.items()
 ]
-len(effects)
 
-x = Effects(p=3, dmeans=norm, pmeans=(1.0, 1.0), label_prefix="x")
-y = Effects(p=2, dmeans=norm, pmeans=(2.0, 1.0), label_prefix="y")
-z = Effects(p=5, dmeans=norm, pmeans=(9.0, 3.0), label_prefix="z")
-p = x.p * y.p * z.p
+effects_no_spat = [e for e in effects if (e.K.labels[0].split('-')[0] != 'rows') and (e.K.labels[0].split('-')[0] != 'cols')]
+vec_effects_no_spat = [np.array(e.b) for e in effects_no_spat]
+
+effects_no_entrep = [e for e in effects if (e.K.labels[0].split('-')[0] != 'entries') and (e.K.labels[0].split('-')[0] != 'replications')]
+vec_effects_no_entrep = [np.array(e.b) for e in effects_no_entrep]
+idx_rows_cols = [i for i, e in enumerate(effects_no_entrep) if (e.K.labels[0].split('-')[0] == 'rows') or (e.K.labels[0].split('-')[0] == 'cols')]
+
+
+p = functools.reduce(lambda a,b: a*b, [e.p for e in effects_no_spat], 1)
 error = Effects(p=p, func=CovarianceMatrix.simulate_spherical, pmeans=(1.0, 0.0))
 
 
-A = expand_grid(x.b, y.b, z.b)
+A = np.column_stack(
+    (
+        expand_grid(*vec_effects_no_spat),
+        expand_grid(*vec_effects_no_entrep)[:, idx_rows_cols],
+        error.b
+    )
+)
