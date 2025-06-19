@@ -1,5 +1,8 @@
 # AgBLR
-Comparing Bayesian linear regression with industry standard linear mixed model framework for agricultural research crop yield trial analyses
+Comparing Bayesian methods with industry standard linear mixed model framework for agricultural research crop yield trial analyses.
+We are testing the following Bayesian methods:
+- Bayesian linear regression using [Turing.jl](https://github.com/TuringLang)
+- Bayesian network using [BayesNet.jl](https://github.com/sisl/BayesNets.jl)
 
 ## Dev Stuff
 
@@ -24,8 +27,8 @@ touch tests/__init__.py
 touch tests/tests.py
 # Development loop
 source .venv/bin/activate
-python -i scripts/py/simulate.py
 uv run ruff format
 uv run ruff check --fix
 uv run pytest -v
+python -i scripts/py/simulate.py
 ```

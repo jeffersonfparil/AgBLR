@@ -2,7 +2,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import norm, uniform, laplace, beta
 from scipy.stats import multivariate_normal
-from typing import Self, Union
+import functools
+from typing import Self, Union, Callable
 
 
 class CovarianceMatrix:
@@ -16,12 +17,14 @@ class CovarianceMatrix:
         with np.printoptions(precision=2, suppress=True):
             print(self.V)
         if len(self.labels) > 10:
-            print("Labels:", self.labels[0:5], "...", self.labels[-5:len(self.labels)])
+            print(
+                "Labels:", self.labels[0:5], "...", self.labels[-5 : len(self.labels)]
+            )
         else:
             print("Labels:", self.labels)
         print("Determinant:", np.linalg.det(self.V))
         return "CovarianceMatrix(p={})".format(self.V.shape[0])
-    
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, CovarianceMatrix):
             return NotImplemented
@@ -50,7 +53,9 @@ class CovarianceMatrix:
         self.V = np.outer(x, x) / len(x)
         return self
 
-    def simulate_diagonal(self, x: Union[None, npt.NDArray[1]] = None, seed: int = 42) -> Self:
+    def simulate_diagonal(
+        self, x: Union[None, npt.NDArray[1]] = None, seed: int = 42
+    ) -> Self:
         if x is None:
             x = np.diagonal(self.V)
         elif len(x) != self.V.shape[0]:
@@ -63,7 +68,9 @@ class CovarianceMatrix:
         self.V = np.diag(diagonal_elements)
         return self
 
-    def simulate_random(self, x: Union[None, npt.NDArray[1]] = None, seed: int = 42) -> Self:
+    def simulate_random(
+        self, x: Union[None, npt.NDArray[1]] = None, seed: int = 42
+    ) -> Self:
         if x is None:
             x = np.diagonal(self.V)
         elif len(x) != self.V.shape[0]:
@@ -146,42 +153,83 @@ class Effects:
     def __init__(
         self,
         p: int,
-        dmeans=[norm, uniform, laplace, beta][0],
+        func: Callable = CovarianceMatrix.simulate_simple,
+        dmeans: Callable = [norm, uniform, laplace, beta][0],
         pmeans: tuple[float, float] = (2.0, 1.0),
         label_prefix: str = "param",
         seed: int = 42,
     ) -> None:
-        x = dmeans(pmeans[0], pmeans[1]).rvs(size=p)
         K = CovarianceMatrix(p=p, label_prefix=label_prefix)
-        K.simulate_simple(x)
+        x = dmeans(pmeans[0], pmeans[1]).rvs(size=p)
+        if func == CovarianceMatrix.simulate_spherical:
+            func(K, pmeans[0])
+        else:
+            func(K, x)
         if np.abs(np.linalg.det(K.V)) <= 1e-7:
             K.inflate_diagonal(s=0.01, tol=1e-7, max_iter=10)
         MVN = multivariate_normal(mean=x, cov=K.V, allow_singular=False, seed=seed)
         self.K = K
         self.b = MVN.rvs(size=1)
+        self.p = len(self.b)
         return None
-    
+
     def __repr__(self):
         print("Covariances:")
         print(self.K)
         print("Effects:")
         with np.printoptions(precision=2, suppress=True):
             print("b:", self.b)
-        return "Effects(p={})".format(len(self.b))
-    
+        return "Effects(p={})".format(self.p)
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Effects):
             return NotImplemented
-        return (
-            (self.K == other.K) and
-            np.array_equal(self.b, other.b)
-        )
-    
+        return (self.K == other.K) and np.array_equal(self.b, other.b)
+
     def __ne__(self, other: object) -> bool:
         if not isinstance(other, Effects):
             return NotImplemented
         return not self.__eq__(other)
-    
+
     def __hash__(self) -> int:
         return hash((hash(self.K), tuple(self.b.flatten())))
-    
+
+
+def expand_grid(*vec_effects: npt.NDArray[1]) -> npt.NDArray[2]:
+    n = len(vec_effects)
+    p = functools.reduce(lambda x, y: x * y, map(len, vec_effects), 1)
+    out = np.array(np.meshgrid(*vec_effects)).reshape(n, p).T
+    return out
+
+
+input = {
+    "years": [5, norm, (0.5, 1.0)],
+    "sites": [3, norm, (1.0, 1.0)],
+    "treatments": [4, laplace, (2.0, 4.0)],
+    "entries": [10, beta, (2.0, 5.0)],
+    "replications": [3, norm, (0.0, 1.0)],
+    "rows": [6, beta, (2.0, 5.0)],
+    "cols": [5, beta, (5.0, 2.0)],
+}
+n_entries = input["entries"][0]
+n_replications = input["replications"][0]
+n_rows = input["rows"][0]
+n_cols = input["cols"][0]
+if (n_entries * n_replications) != (n_rows * n_cols):
+    raise ValueError(
+        "Number of entries multiplied by replications must equal number of rows multiplied by cols."
+    )
+
+effects = [
+    Effects(p=v[0], dmeans=v[1], pmeans=v[2], label_prefix=k) for k, v in input.items()
+]
+len(effects)
+
+x = Effects(p=3, dmeans=norm, pmeans=(1.0, 1.0), label_prefix="x")
+y = Effects(p=2, dmeans=norm, pmeans=(2.0, 1.0), label_prefix="y")
+z = Effects(p=5, dmeans=norm, pmeans=(9.0, 3.0), label_prefix="z")
+p = x.p * y.p * z.p
+error = Effects(p=p, func=CovarianceMatrix.simulate_spherical, pmeans=(1.0, 0.0))
+
+
+A = expand_grid(x.b, y.b, z.b)
