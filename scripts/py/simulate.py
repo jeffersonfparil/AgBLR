@@ -210,12 +210,34 @@ input = {
     "replications": [3, norm, (0.0, 1.0)],
     "rows": [6, beta, (2.0, 5.0)],
     "cols": [5, beta, (5.0, 2.0)],
+    "residuals": [5 * 3 * 4 * 10 * 3, norm, (0.0, 1.0)],
+    "sites:treatments": [12, norm, (2.0, 5.0)],
 }
 n_entries = input["entries"][0]
 n_replications = input["replications"][0]
 n_rows = input["rows"][0]
 n_cols = input["cols"][0]
-if (n_entries * n_replications) != (n_rows * n_cols):
+n_total = input["residuals"][0]
+
+n_trials = functools.reduce(
+    lambda x, y: x * y,
+    [
+        v[0]
+        for k, v in input.items()
+        if (k not in ["entries", "replications", "rows", "cols", "residuals"])
+        and (len(k.split(":")) == 1)
+    ],
+    1,
+)
+n_per_trial = n_entries * n_replications
+n_plots_per_trial = n_rows * n_cols
+
+if (n_trials * n_per_trial) != n_total:
+    raise ValueError(
+        "Total number of data points is not equal to the number of residual effects."
+    )
+
+if n_per_trial != n_plots_per_trial:
     raise ValueError(
         "Number of entries multiplied by replications must equal number of rows multiplied by cols."
     )
@@ -224,15 +246,30 @@ effects = [
     Effects(p=v[0], dmeans=v[1], pmeans=v[2], label_prefix=k) for k, v in input.items()
 ]
 
-effects_no_spat = [e for e in effects if (e.K.labels[0].split('-')[0] != 'rows') and (e.K.labels[0].split('-')[0] != 'cols')]
+effects_no_spat = [
+    e
+    for e in effects
+    if (e.K.labels[0].split("-")[0] != "rows")
+    and (e.K.labels[0].split("-")[0] != "cols")
+]
 vec_effects_no_spat = [np.array(e.b) for e in effects_no_spat]
 
-effects_no_entrep = [e for e in effects if (e.K.labels[0].split('-')[0] != 'entries') and (e.K.labels[0].split('-')[0] != 'replications')]
+effects_no_entrep = [
+    e
+    for e in effects
+    if (e.K.labels[0].split("-")[0] != "entries")
+    and (e.K.labels[0].split("-")[0] != "replications")
+]
 vec_effects_no_entrep = [np.array(e.b) for e in effects_no_entrep]
-idx_rows_cols = [i for i, e in enumerate(effects_no_entrep) if (e.K.labels[0].split('-')[0] == 'rows') or (e.K.labels[0].split('-')[0] == 'cols')]
+idx_rows_cols = [
+    i
+    for i, e in enumerate(effects_no_entrep)
+    if (e.K.labels[0].split("-")[0] == "rows")
+    or (e.K.labels[0].split("-")[0] == "cols")
+]
 
 
-p = functools.reduce(lambda a,b: a*b, [e.p for e in effects_no_spat], 1)
+p = functools.reduce(lambda a, b: a * b, [e.p for e in effects_no_spat], 1)
 error = Effects(p=p, func=CovarianceMatrix.simulate_spherical, pmeans=(1.0, 0.0))
 
 
@@ -240,6 +277,6 @@ A = np.column_stack(
     (
         expand_grid(*vec_effects_no_spat),
         expand_grid(*vec_effects_no_entrep)[:, idx_rows_cols],
-        error.b
+        error.b,
     )
 )
